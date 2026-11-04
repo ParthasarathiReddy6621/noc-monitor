@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOC Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --line: #2a3340;
+    --text: #e6edf3; --muted: #8b98a8; --up: #2ea043; --down: #f85149;
+    --crit: #f85149; --major: #f0883e; --minor: #d29922; --info: #58a6ff; --ack: #a371f7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px;
+           background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  .health { padding: 4px 12px; border-radius: 999px; font-weight: 600; font-size: 13px; }
+  .health.ok { background: rgba(46,160,67,.15); color: var(--up); }
+  .health.bad { background: rgba(248,81,73,.15); color: var(--down); }
+  .spacer { flex: 1; }
+  .clock, .updated { color: var(--muted); font-variant-numeric: tabular-nums; }
+  main { padding: 20px 24px 40px; display: grid; gap: 20px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .kpi .value { font-size: 28px; font-weight: 600; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .kpi .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  section h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  section h2 .count { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .dev { background: var(--panel2); border: 1px solid var(--line); border-left: 4px solid var(--up);
+         border-radius: 8px; padding: 10px 12px; }
+  .dev.down { border-left-color: var(--down); background: rgba(248,81,73,.07); }
+  .dev .name { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+  .dev .meta { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap;
+               overflow: hidden; text-overflow: ellipsis; }
+  .dev .nums { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; }
+  .dev .nums b { font-size: 14px; font-variant-numeric: tabular-nums; }
+  .pill { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; text-transform: uppercase; }
+  .pill.UP { background: rgba(46,160,67,.18); color: var(--up); }
+  .pill.DOWN { background: rgba(248,81,73,.18); color: var(--down); }
+  .pill.critical { background: rgba(248,81,73,.18); color: var(--crit); }
+  .pill.major { background: rgba(240,136,62,.18); color: var(--major); }
+  .pill.minor { background: rgba(210,153,34,.18); color: var(--minor); }
+  .pill.OPEN { background: rgba(248,81,73,.18); color: var(--down); }
+  .pill.ACKNOWLEDGED { background: rgba(163,113,247,.18); color: var(--ack); }
+  .pill.RESOLVED { background: rgba(46,160,67,.18); color: var(--up); }
+  .two { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+  @media (max-width: 1000px) { .two { grid-template-columns: 1fr; } }
+  .chartbox { position: relative; height: 280px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  td.detail { color: var(--muted); max-width: 360px; }
+  tr.flap td:first-child::after { content: " ↯"; color: var(--major); }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+           border-radius: 6px; padding: 5px 12px; cursor: pointer; font: inherit; font-size: 12px; }
+  button:hover { border-color: var(--info); }
+  button.primary { background: #238636; border-color: #2ea043; }
+  .tabs button.active { border-color: var(--info); color: var(--info); }
+  .empty { color: var(--muted); padding: 12px 0; }
+  .footer { color: var(--muted); font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .footer a { color: var(--info); text-decoration: none; }
+  pre.report { white-space: pre-wrap; background: var(--panel2); border: 1px solid var(--line);
+               border-radius: 8px; padding: 12px; margin: 10px 0 0; color: var(--text); }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--panel2); border: 1px solid var(--info);
+           padding: 10px 16px; border-radius: 8px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛰️ NOC Monitor</h1>
+  <span id="health" class="health ok">Loading…</span>
+  <span class="spacer"></span>
+  <span class="updated" id="updated"></span>
+  <span class="clock" id="clock"></span>
+</header>
+
+<main>
+  <div class="kpis">
+    <div class="kpi"><div class="label">Checks UP</div><div class="value" id="k-up">–</div><div class="sub" id="k-up-sub"></div></div>
+    <div class="kpi"><div class="label">Active incidents</div><div class="value" id="k-inc">–</div><div class="sub" id="k-inc-sub"></div></div>
+    <div class="kpi"><div class="label">Availability 24h</div><div class="value" id="k-avail">–</div><div class="sub">all checks</div></div>
+    <div class="kpi"><div class="label">MTTA</div><div class="value" id="k-mtta">–</div><div class="sub">mean time to acknowledge</div></div>
+    <div class="kpi"><div class="label">MTTR</div><div class="value" id="k-mttr">–</div><div class="sub">mean time to resolve</div></div>
+  </div>
+
+  <section>
+    <h2>Device status <span class="count" id="dev-count"></span></h2>
+    <div class="grid" id="devices"></div>
+  </section>
+
+  <div class="two">
+    <section>
+      <h2>Response time (last 6 h) <span class="count">ms, 5-min average</span></h2>
+      <div class="chartbox"><canvas id="latChart"></canvas></div>
+    </section>
+    <section>
+      <h2>Uptime (last 24 h)</h2>
+      <div class="chartbox"><canvas id="upChart"></canvas></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Incidents
+      <span class="tabs"><button id="tab-active" class="active" onclick="setTab('active')">Active</button>
+      <button id="tab-all" onclick="setTab('all')">All</button></span>
+    </h2>
+    <table>
+      <thead><tr><th>#</th><th>Severity</th><th>Status</th><th>Device</th><th>Problem</th>
+        <th>Opened</th><th>Duration</th><th>Detail</th><th></th></tr></thead>
+      <tbody id="incidents"></tbody>
+    </table>
+  </section>
+
+  <section id="iface-section" style="display:none">
+    <h2>Interfaces (SNMP)</h2>
+    <table>
+      <thead><tr><th>Device</th><th>Interface</th><th>Oper</th><th>Speed</th><th>In</th><th>Out</th><th>Util %</th><th>Description</th></tr></thead>
+      <tbody id="ifaces"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Daily report</h2>
+    <button onclick="previewReport()">Preview</button>
+    <button class="primary" onclick="sendReport()">Send to Telegram now</button>
+    <pre class="report" id="report" style="display:none"></pre>
+  </section>
+
+  <div class="footer">
+    <span>Auto-refresh every 15 s</span>
+    <a href="/docs" target="_blank">API docs</a>
+    <a href="/metrics" target="_blank">Prometheus metrics</a>
+    <a href="/incidents/summary" target="_blank">Incident summary (JSON)</a>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const COLORS = ["#58a6ff","#3fb950","#f0883e","#d2a8ff","#ff7b72","#79c0ff","#e3b341","#56d4dd","#db61a2","#a5d6ff"];
+let incidentTab = "active", latChart = null, upChart = null, skew = 0;   // skew = server clock - browser clock
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtMin = m => m == null ? "–" : (m < 1 ? Math.round(m * 60) + "s" : m.toFixed(1) + "m");
+function fmtBps(v) { if (v == null) return "–"; for (const [u, s] of [["Gbps",1e9],["Mbps",1e6],["Kbps",1e3]]) if (v >= s) return (v/s).toFixed(2)+" "+u; return Math.round(v)+" bps"; }
+function since(ts) {
+  const s = Math.max(0, (Date.now() + skew - new Date(ts).getTime()) / 1000);
+  if (s < 60) return Math.round(s) + "s"; if (s < 3600) return Math.floor(s/60) + "m " + Math.round(s%60) + "s";
+  return Math.floor(s/3600) + "h " + Math.floor((s%3600)/60) + "m";
+}
+function duration(a, b) { const s = (new Date(b) - new Date(a)) / 1000; return s < 60 ? Math.round(s)+"s" : s < 3600 ? Math.floor(s/60)+"m "+Math.round(s%60)+"s" : Math.floor(s/3600)+"h "+Math.floor((s%3600)/60)+"m"; }
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; setTimeout(() => t.style.display = "none", 3500); }
+async function get(path) { const r = await fetch(path); if (!r.ok) throw new Error(path + " " + r.status); return r.json(); }
+
+function setTab(t) { incidentTab = t; $("tab-active").classList.toggle("active", t === "active"); $("tab-all").classList.toggle("active", t === "all"); loadIncidents(); }
+
+async function ack(id) {
+  const who = prompt("Acknowledged by:", "noc-engineer"); if (who === null) return;
+  const r = await fetch(`/incidents/${id}/ack?by=${encodeURIComponent(who)}`, {method: "POST"});
+  toast(r.ok ? `Incident #${id} acknowledged` : `Could not acknowledge #${id}`); refresh();
+}
+
+async function loadIncidents() {
+  const rows = await get(`/incidents?status=${incidentTab}&limit=50`);
+  $("incidents").innerHTML = rows.length ? rows.map(i => `
+    <tr class="${i.flapping ? 'flap' : ''}">
+      <td>${i.id}</td><td><span class="pill ${i.severity}">${i.severity}</span></td>
+      <td><span class="pill ${i.status}">${i.status}</span></td>
+      <td><b>${esc(i.name)}</b><div class="meta" style="color:var(--muted);font-size:12px">${esc(i.check_type)} ${esc(i.target)}</div></td>
+      <td>${esc(i.condition)}</td><td>${esc(i.opened_at.replace("T", " "))}</td>
+      <td>${i.resolved_at ? duration(i.opened_at, i.resolved_at) : since(i.opened_at)}</td>
+      <td class="detail">${esc(i.detail)}${i.acknowledged_by ? `<br>ack by ${esc(i.acknowledged_by)}` : ""}</td>
+      <td>${i.status === "OPEN" ? `<button onclick="ack(${i.id})">Ack</button>` : ""}</td>
+    </tr>`).join("") : `<tr><td colspan="9" class="empty">${incidentTab === "active" ? "No active incidents — all clear ✅" : "No incidents yet"}</td></tr>`;
+}
+
+function drawCharts(series, uptime) {
+  const byCheck = {};
+  for (const p of series) { if (p.check_type !== "ping" || p.avg_ms == null) continue;
+    (byCheck[p.name] ??= []).push({x: p.bucket.slice(11, 16), y: p.avg_ms}); }
+  const labels = [...new Set(series.filter(p => p.check_type === "ping").map(p => p.bucket.slice(11, 16)))].sort();
+  const datasets = Object.entries(byCheck).slice(0, 10).map(([name, pts], i) => {
+    const m = Object.fromEntries(pts.map(p => [p.x, p.y]));
+    return {label: name, data: labels.map(l => m[l] ?? null), borderColor: COLORS[i % COLORS.length],
+            backgroundColor: COLORS[i % COLORS.length], tension: .3, pointRadius: 0, borderWidth: 2, spanGaps: true};
+  });
+  const grid = {color: "#2a3340"}, ticks = {color: "#8b98a8"};
+  if (typeof Chart === "undefined") { $("latChart").parentElement.innerHTML = '<div class="empty">Charts need internet access in your browser (Chart.js).</div>'; return; }
+  if (latChart) { latChart.data.labels = labels; latChart.data.datasets = datasets; latChart.update("none"); }
+  else latChart = new Chart($("latChart"), {type: "line", data: {labels, datasets},
+      options: {maintainAspectRatio: false, animation: false, interaction: {mode: "index", intersect: false},
+        plugins: {legend: {labels: {color: "#e6edf3", boxWidth: 10}}},
+        scales: {x: {grid, ticks}, y: {grid, ticks, beginAtZero: true, title: {display: true, text: "ms", color: "#8b98a8"}}}}});
+
+  const up = uptime.filter(u => u.check_type === "ping").sort((a, b) => a.uptime_pct - b.uptime_pct);
+  const upData = {labels: up.map(u => u.name), datasets: [{data: up.map(u => u.uptime_pct),
+      backgroundColor: up.map(u => u.uptime_pct >= 99 ? "#2ea043" : u.uptime_pct >= 95 ? "#d29922" : "#f85149"), borderRadius: 4}]};
+  if (upChart) { upChart.data = upData; upChart.update("none"); }
+  else upChart = new Chart($("upChart"), {type: "bar", data: upData,
+      options: {indexAxis: "y", maintainAspectRatio: false, animation: false, plugins: {legend: {display: false}},
+        scales: {x: {min: 0, max: 100, grid, ticks}, y: {grid: {display: false}, ticks: {color: "#e6edf3"}}}}});
+}
+
+async function refresh() {
+  try {
+    const [status, uptime, summary, series, report, ifaces] = await Promise.all([
+      get("/status"), get("/uptime?hours=24"), get("/incidents/summary"),
+      get("/timeseries?hours=6&bucket_minutes=5"), get("/reports/daily"), get("/interfaces").catch(() => [])]);
+
+    skew = new Date(status.generated_at).getTime() - Date.now();   // durations use the server's clock
+    const upMap = Object.fromEntries(uptime.checks.map(u => [u.check_id, u]));
+    const checks = status.checks.filter(c => c.check_type !== "iface").sort((a, b) =>
+      (a.status === b.status ? a.name.localeCompare(b.name) : a.status === "DOWN" ? -1 : 1));
+    const down = status.checks.filter(c => c.status === "DOWN").length;
+
+    $("health").textContent = down ? `${down} DOWN` : "ALL SYSTEMS UP";
+    $("health").className = "health " + (down ? "bad" : "ok");
+    $("k-up").textContent = `${status.up}/${status.total}`;
+    $("k-up-sub").textContent = down ? `${down} down` : "everything reachable";
+    const sev = summary.active_by_severity, totalActive = Object.values(sev).reduce((a, b) => a + b, 0);
+    $("k-inc").textContent = totalActive;
+    $("k-inc").style.color = sev.critical ? "var(--crit)" : totalActive ? "var(--major)" : "var(--up)";
+    $("k-inc-sub").textContent = totalActive ? Object.entries(sev).map(([k, v]) => `${v} ${k}`).join(" · ") : "all clear";
+    $("k-avail").textContent = report.stats.availability_pct == null ? "–" : report.stats.availability_pct + "%";
+    $("k-mtta").textContent = fmtMin(summary.mtta_minutes);
+    $("k-mttr").textContent = fmtMin(summary.mttr_minutes);
+
+    $("dev-count").textContent = `${checks.length} checks`;
+    $("devices").innerHTML = checks.map(c => {
+      const u = upMap[c.check_id];
+      return `<div class="dev ${c.status === "DOWN" ? "down" : ""}">
+        <div class="name">${esc(c.name)} <span class="pill ${c.status}">${c.status}</span></div>
+        <div class="meta">${esc(c.check_type)} · ${esc(c.target)}</div>
+        <div class="meta">${esc(c.detail)}</div>
+        <div class="nums"><span>latency <b>${c.response_ms != null ? c.response_ms + " ms" : "–"}</b></span>
+          <span>24h <b>${u ? u.uptime_pct + "%" : "–"}</b></span></div></div>`;
+    }).join("") || '<div class="empty">No results yet — the first checks run within a few seconds.</div>';
+
+    $("iface-section").style.display = ifaces.length ? "" : "none";
+    $("ifaces").innerHTML = ifaces.map(i => `<tr><td>${esc(i.device)}</td><td>${esc(i.if_name)}</td>
+      <td><span class="pill ${i.oper_status === 1 ? "UP" : "DOWN"}">${esc(i.oper_status_text)}</span></td>
+      <td>${esc(i.speed)}</td><td>${fmtBps(i.in_bps)}</td><td>${fmtBps(i.out_bps)}</td>
+      <td>${i.in_util_pct == null ? "–" : Math.max(i.in_util_pct, i.out_util_pct ?? 0)}</td><td>${esc(i.if_alias)}</td></tr>`).join("");
+
+    drawCharts(series, uptime.checks);
+    await loadIncidents();
+    $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (e) { $("updated").textContent = "⚠ " + e.message; }
+}
+
+async function previewReport() { const r = await get("/reports/daily"); $("report").style.display = "block"; $("report").textContent = `📊 ${r.title}\n${r.body}`; }
+async function sendReport() { const r = await fetch("/reports/daily", {method: "POST"}); toast(r.ok ? "Daily report sent 📊" : "Send failed"); previewReport(); }
+
+setInterval(() => $("clock").textContent = new Date().toLocaleString(), 1000);
+refresh(); setInterval(refresh, 15000);
+</script>
+</body>
+</html>

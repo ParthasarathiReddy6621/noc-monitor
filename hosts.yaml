@@ -1,0 +1,53 @@
+# NOC Monitor - config for running INSIDE the GNS3 lab
+# The monitor container sits on LAN1 (10.0.10.100), gateway BRANCH1 (10.0.10.1).
+# Severity: critical = core infrastructure, major = branch routers, minor = end PCs
+
+settings:
+  ping_count: 2
+  timeout_seconds: 2
+  interval_seconds: 30
+
+hosts:
+  # --- Routers ---
+  - name: CORE
+    address: 10.0.1.1
+    ports: []
+    severity: critical
+  - name: BRANCH1
+    address: 10.0.10.1
+    ports: []
+    severity: major
+  - name: BRANCH2
+    address: 10.0.2.2
+    ports: []
+    severity: major
+  - name: BRANCH2-LAN
+    address: 10.0.20.1
+    ports: []
+    severity: major
+
+  # --- PCs ---
+  - {name: PC1, address: 10.0.10.11, ports: [], severity: minor}
+  - {name: PC2, address: 10.0.10.12, ports: [], severity: minor}
+  - {name: PC3, address: 10.0.20.11, ports: [], severity: minor}
+  - {name: PC4, address: 10.0.20.12, ports: [], severity: minor}
+
+# --- SNMP (enable later, once snmpd runs on the routers) ---
+# snmp_devices:
+#   - {name: CORE, address: 10.0.1.1, community: noc-ro, severity: critical}
+
+alerting:
+  enabled: true
+  fail_threshold: 3           # 3 x 30 s = alert after ~90 s of failure
+  recover_threshold: 2        # 2 x 30 s stable before "resolved"
+  latency_warn_ms: 150
+  utilization_warn_pct: 80
+  errors_warn_per_poll: 10
+  flap_window_minutes: 10
+  flap_max_changes: 4
+  repeat_minutes: 30
+  daily_report: "09:00"      # daily summary to Telegram (container time = IST)
+  channels:
+    console:  {min_severity: info}
+    telegram: {min_severity: major}     # needs internet: see eth1 / NAT in the guide
+    # email:  {min_severity: critical}

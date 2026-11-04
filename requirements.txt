@@ -1,0 +1,10 @@
+PyYAML>=6.0
+requests>=2.31
+dnspython>=2.6
+APScheduler>=3.10,<4
+fastapi>=0.110
+uvicorn>=0.29
+tzdata                  # timezone database (needed on Windows)
+pysnmp>=7.1,<8          # SNMP polling (Week 3)
+snmpsim                 # optional: simulated SNMP routers for testing without GNS3
+pysmi                   # needed by snmpsim
